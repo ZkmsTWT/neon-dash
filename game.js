@@ -79,8 +79,9 @@ const G = {
 
   /* 相机运行时状态 */
   camMode: 3,        // 3 = 第三人称, 1 = 第一人称
-  camX: 0, camY: CAM3.height, camZ: -CAM3.dist,
-  lookZ: 0, // 视线目标点 z（玩家前方）
+  camX: 0, camY: CAM3.height, camZ: -CAM3.dist, // 世界 z（第三人称相机在玩家身后）
+  lookZ: 0,
+  lookX: 0, // 视线目标（玩家前方）
   lookX: 0,
   pitch: 0,          // 第一人称垂直视角
   running: false,
@@ -102,7 +103,7 @@ function camState() {
     return {
       x: G.playerLaneX,
       y: G.y + CAM1.height + bob,
-      z: G.dist - 0.4,   // 相机略在玩家身后 0.4（胸口位置）
+      z: G.dist,          // 相机在胸口位置（与玩家同 z）
       lookX: G.playerLaneX,
       lookZ: G.dist + CAM3.lookAhead,
       fovMul: CAM1.fovMul,
@@ -260,7 +261,7 @@ function spawnRing(kind) {
   for (let i = 0; i < 14; i++) {
     const a = (i / 14) * Math.PI * 2;
     G.particles.push({
-      kind: 'ring', x: worldX(G.playerLane), y: G.onGround ? 0.05 : G.y, z: G.dist + Z_NEAR + 0.5,
+      kind: 'ring', x: worldX(G.playerLane), y: G.onGround ? 0.05 : G.y, z: G.dist,
       vx: Math.cos(a) * 2.4, vy: Math.sin(a) * 1.2 + (kind === 'jump' ? 1.5 : 0),
       life: 0.5, t: 0, hue: 190,
     });
@@ -273,7 +274,7 @@ function spawnBurst(x, y, z, hue) {
   }
 }
 function spawnTrail() {
-  G.particles.push({ kind: 'trail', x: worldX(G.playerLane), y: G.y + 0.9, z: G.dist + Z_NEAR + 0.3,
+  G.particles.push({ kind: 'trail', x: worldX(G.playerLane), y: G.y + 0.9, z: G.dist,
     vx: rand(-0.4, 0.4), vy: rand(-0.4, 0.4), vz: 6, life: 0.35, t: 0, hue: G.dashHeld ? 300 : 190 });
 }
 
@@ -301,7 +302,7 @@ function crash() {
   G.state = 'over';
   G.flash = 1;
   G.camShake = 1;
-  spawnBurst(G.playerLaneX, G.y + 0.8, G.dist + Z_NEAR + 0.5, 0);
+  spawnBurst(G.playerLaneX, G.y + 0.8, G.dist, 0);
   G.best = Math.max(G.best, Math.floor(G.score));
   localStorage.setItem('neondash_best', G.best);
   showOver();
@@ -320,8 +321,8 @@ function startGame() {
   G.obstacles = []; G.gemsArr = []; G.particles = []; G.scenery = [];
   G.spawnTimer = 0.9; G.gemTimer = 2.2;
   G.hue = 180;
-  G.camX = 0; G.camY = CAM3.height; G.camZ = -CAM3.dist;
-  G.lookZ = G.dist; G.lookX = 0;
+  G.camX = 0; G.camY = CAM3.height; G.camZ = G.dist - CAM3.dist;
+  G.lookZ = G.dist + CAM3.lookAhead; G.lookX = 0;
   G.runPhase = 0;
   document.getElementById('start').classList.add('hidden');
   document.getElementById('over').classList.add('hidden');
@@ -415,7 +416,7 @@ function update(dt) {
       G.combo++;
       G.comboTimer = 2.2;
       G.score += 15 * Math.min(G.combo, 10);
-      spawnBurst(G.playerLaneX, 0.6, G.dist + 1.2, 55);
+      spawnBurst(G.playerLaneX, 0.6, G.dist, 55);
     }
   }
   if (G.comboTimer > 0) { G.comboTimer -= dt; if (G.comboTimer <= 0) G.combo = 0; }
@@ -525,19 +526,20 @@ function drawGround() {
 
 function drawGrid() {
   const step = 4;
+  const camWZ = G.dist - 1; // 绝对世界 z 基准（略在玩家身后）
   const startOff = G.state === 'play' ? (G.dist % step) : (G.t * 6) % step;
 
   ctx.lineWidth = 1;
-  // 纵向线
+  // 纵向线（绝对世界 z：从相机附近一路铺到远处）
   for (let x = -8; x <= 8; x++) {
-    const a = project(x * step * 0.55, 0, G.camZ + Z_NEAR);
-    const b = project(x * step * 0.55, 0, G.camZ + Z_FAR);
+    const a = project(x * step * 0.55, 0, camWZ);
+    const b = project(x * step * 0.55, 0, camWZ + Z_FAR);
     ctx.strokeStyle = `hsla(${(G.hue + 180) % 360},80%,60%,${0.05 + (Math.abs(x) < 2 ? 0.12 : 0)})`;
     ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
   }
-  // 横向线
+  // 横向线（绝对世界 z，随 dist 滚动）
   for (let i = 0; i < 44; i++) {
-    const z = G.camZ + Z_NEAR + ((i * step + step - startOff) % (Z_FAR - Z_NEAR));
+    const z = camWZ + ((i * step + step - startOff) % (Z_FAR - Z_NEAR));
     const p = project(0, 0, z);
     if (p.s < 1.2) continue;
     const alpha = clamp((p.s - 1) / 60, 0, 1) * 0.55;
@@ -548,7 +550,7 @@ function drawGrid() {
   // 车道虚线
   ctx.setLineDash([10, 14]);
   for (const lx of [-SPACING/2, SPACING/2]) {
-    const a = project(lx, 0.02, G.camZ + Z_NEAR), b = project(lx, 0.02, G.camZ + Z_FAR * 0.8);
+    const a = project(lx, 0.02, camWZ), b = project(lx, 0.02, camWZ + Z_FAR * 0.8);
     ctx.strokeStyle = `hsla(${G.hue % 360},80%,70%,.55)`;
     ctx.lineWidth = 2;
     ctx.lineDashOffset = -G.dist * 4;
@@ -559,9 +561,10 @@ function drawGrid() {
 
 /* 道路：具象化地面 */
 function drawRoad() {
+  const camWZ = G.dist - 1;
   // 路面（比网格更亮的"沥青+霓虹"质感）
-  const fl = project(-SPACING * 1.7, 0, G.camZ + Z_NEAR), fr = project(SPACING * 1.7, 0, G.camZ + Z_NEAR);
-  const bl = project(-SPACING * 1.7, 0, G.camZ + Z_FAR), br = project(SPACING * 1.7, 0, G.camZ + Z_FAR);
+  const fl = project(-SPACING * 1.7, 0, camWZ), fr = project(SPACING * 1.7, 0, camWZ);
+  const bl = project(-SPACING * 1.7, 0, camWZ + Z_FAR), br = project(SPACING * 1.7, 0, camWZ + Z_FAR);
   const rg = ctx.createLinearGradient(0, bl.y, 0, fl.y);
   rg.addColorStop(0, `hsla(${(G.hue + 180) % 360},40%,14%,.9)`);
   rg.addColorStop(0.7, `hsla(${(G.hue + 180) % 360},55%,10%,.95)`);
@@ -573,8 +576,8 @@ function drawRoad() {
 
   // 路边发光路缘
   for (const edge of [-1, 1]) {
-    const a = project(edge * SPACING * 1.7, 0.02, G.camZ + Z_NEAR);
-    const b = project(edge * SPACING * 1.7, 0.02, G.camZ + Z_FAR * 0.9);
+    const a = project(edge * SPACING * 1.7, 0.02, camWZ);
+    const b = project(edge * SPACING * 1.7, 0.02, camWZ + Z_FAR * 0.9);
     ctx.strokeStyle = `hsla(${(G.hue + 20) % 360},100%,60%,.9)`;
     ctx.lineWidth = Math.max(2, a.s * 0.4);
     ctx.shadowColor = ctx.strokeStyle; ctx.shadowBlur = a.s * 1.5;
@@ -850,11 +853,11 @@ function drawGems() {
 function drawPlayer() {
   // 第三人称下才画玩家本体
   const px = G.playerLaneX, py = G.y;
-  const p = project(px, py, G.dist + Z_NEAR + 0.5);
+  const p = project(px, py, G.dist);
   const s = p.s;
   const bx = p.x, by = p.y;
 
-  const gs = project(px, 0, G.dist + Z_NEAR + 0.5);
+  const gs = project(px, 0, G.dist);
   const shScale = clamp(1 - py * 0.12, 0.25, 1);
   ctx.fillStyle = 'rgba(0,0,0,.45)';
   ctx.beginPath();
