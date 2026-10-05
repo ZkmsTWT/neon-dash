@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Neon Dash · 矢量跑酷</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #05050f; }
+  body {
+    font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    user-select: none;
+  }
+  #wrap {
+    position: relative;
+    width: 100%; height: 100%;
+    display: flex; align-items: center; justify-content: center;
+  }
+  canvas { display: block; }
+
+  /* ---------- HUD ---------- */
+  #hud {
+    position: absolute; top: 0; left: 0; right: 0;
+    padding: 14px 22px;
+    display: flex; justify-content: space-between; align-items: flex-start;
+    pointer-events: none;
+    color: #cfe8ff;
+    text-shadow: 0 0 10px rgba(80,200,255,.55);
+  }
+  .hud-box { font-size: 13px; letter-spacing: 2px; line-height: 1.7; }
+  #hud .score {
+    font-size: 34px; font-weight: 800; color: #fff;
+    text-shadow: 0 0 16px rgba(255,80,255,.8), 0 0 4px rgba(255,255,255,.9);
+    letter-spacing: 3px;
+  }
+  #hud .best { color: #8fb8ff; font-size: 13px; letter-spacing: 2px; }
+  .meter {
+    margin-top: 6px; height: 6px; width: 190px;
+    background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.15);
+    overflow: hidden;
+  }
+  .meter > div { height: 100%; width: 0%;
+    background: linear-gradient(90deg,#4df0ff,#b04dff);
+    box-shadow: 0 0 12px rgba(80,220,255,.9); transition: width .12s; }
+  #combo { font-size: 15px; color: #ffd75e; text-shadow: 0 0 12px rgba(255,180,60,.8); min-height: 20px; }
+
+  /* ---------- overlays ---------- */
+  .overlay {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 18px;
+    background: rgba(5,5,15,.72);
+    backdrop-filter: blur(6px);
+    color: #eaf6ff;
+    text-align: center;
+  }
+  .overlay h1 {
+    font-size: 64px; font-weight: 900; letter-spacing: 8px;
+    color: #fff;
+    text-shadow: 0 0 30px rgba(255,80,255,.9), 0 0 14px rgba(80,220,255,.9);
+  }
+  .overlay h2 {
+    font-size: 44px; font-weight: 800; letter-spacing: 4px;
+    text-shadow: 0 0 24px rgba(255,80,255,.8);
+  }
+  .sub { font-size: 15px; color: #9fd4ff; letter-spacing: 3px; }
+  .keys { display: flex; gap: 26px; margin-top: 6px; }
+  .key {
+    display: flex; flex-direction: column; align-items: center; gap: 7px;
+    color: #8fb8ff; font-size: 12px; letter-spacing: 2px;
+  }
+  .kbd {
+    min-width: 44px; height: 44px; padding: 0 10px;
+    display: flex; align-items: center; justify-content: center;
+    border: 1.5px solid rgba(120,200,255,.5); border-radius: 10px;
+    font-size: 20px; font-weight: 700; color: #fff;
+    box-shadow: 0 0 14px rgba(80,180,255,.35), inset 0 0 8px rgba(80,180,255,.25);
+    background: rgba(20,30,60,.5);
+  }
+  .btn {
+    margin-top: 14px;
+    padding: 13px 46px; font-size: 18px; font-weight: 700; letter-spacing: 3px;
+    color: #06121f; background: linear-gradient(90deg,#4df0ff,#b04dff);
+    border: none; border-radius: 40px; cursor: pointer;
+    box-shadow: 0 0 26px rgba(120,160,255,.65);
+    transition: transform .12s;
+  }
+  .btn:hover { transform: scale(1.06); }
+  .final { font-size: 20px; color:#ffd75e; letter-spacing: 2px; text-shadow: 0 0 12px rgba(255,180,60,.6); }
+  .hidden { display: none !important; }
+
+  /* touch buttons */
+  #touch {
+    position: absolute; bottom: 16px; left: 0; right: 0;
+    display: none; justify-content: center; gap: 26px;
+  }
+  #touch .kbd { min-width: 64px; height: 52px; cursor: pointer; }
+  @media (pointer: coarse) { #touch { display: flex; } }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="game"></canvas>
+
+  <div id="hud" class="hidden">
+    <div class="hud-box">
+      <div class="best">BEST <span id="best">0</span></div>
+      <div id="combo"></div>
+    </div>
+    <div class="hud-box" style="text-align:center">
+      <div class="score" id="score">0</div>
+      <div style="font-size:12px;letter-spacing:3px;color:#8fb8ff">SCORE</div>
+    </div>
+    <div class="hud-box" style="text-align:right">
+      <div style="font-size:13px;letter-spacing:2px;color:#8fb8ff">BOOST</div>
+      <div class="meter"><div id="boostbar"></div></div>
+      <div id="boostlbl" style="margin-top:6px;font-size:12px;color:#4df0ff;letter-spacing:1px">SHIFT 加速</div>
+    </div>
+  </div>
+
+  <div id="start" class="overlay">
+    <h1>NEON DASH</h1>
+    <div class="sub">类 · 矢 · 量 · 跑 · 酷</div>
+    <div class="keys">
+      <div class="key"><div class="kbd">←</div>左移</div>
+      <div class="key"><div class="kbd">→</div>右移</div>
+      <div class="key"><div class="kbd">SPACE</div>跳跃</div>
+      <div class="key"><div class="kbd">SHIFT</div>加速</div>
+    </div>
+    <button class="btn" id="play">开始游戏</button>
+    <div class="sub" style="font-size:12px;opacity:.7">按 ENTER 快速开始 · 触屏可用按钮</div>
+  </div>
+
+  <div id="over" class="overlay hidden">
+    <h2>GAME OVER</h2>
+    <div class="final">得分 <span id="final">0</span> · 最佳 <span id="best2">0</span></div>
+    <button class="btn" id="retry">再来一次</button>
+    <div class="sub" style="font-size:12px;opacity:.7">按 ENTER 重新开始</div>
+  </div>
+
+  <div id="touch">
+    <div class="kbd" data-a="left">◀</div>
+    <div class="kbd" data-a="jump">▲</div>
+    <div class="kbd" data-a="right">▶</div>
+    <div class="kbd" data-a="boost" style="font-size:13px">⚡</div>
+  </div>
+</div>
+
+<script src="game.js"></script>
+</body>
+</html>
