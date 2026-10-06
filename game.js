@@ -35,11 +35,11 @@ const DASH_RECHARGE = 0.35;
 
 /* camera: 第三人称惯性参数 */
 const CAM3 = {
-  dist: 3.4,     // 相机在玩家后方的距离
-  height: 2.1,   // 相机高度（跟随玩家跳跃，带阻尼）
-  lookAhead: 6.5,// 相机看向玩家前方多远
-  followK: 5.2,  // 位置跟随阻尼
-  lookK: 3.4,    // 视角惯性阻尼（越小越"飘"）
+  dist: 3.6,     // 相机在玩家后方的距离
+  height: 1.4,   // 相机高度（贴地低机位，地面占满下半屏）
+  lookAhead: 8.0,// 相机看向玩家前方多远
+  followK: 4.0,  // 位置跟随阻尼（更明显甩尾惯性）
+  lookK: 2.6,    // 视角惯性阻尼（越小越"飘"）
   shake: 0,
 };
 /* 第一人称：胸前视角 */
@@ -103,7 +103,7 @@ function camState() {
     return {
       x: G.playerLaneX,
       y: G.y + CAM1.height + bob,
-      z: G.dist,          // 相机在胸口位置（与玩家同 z）
+      z: G.dist,          // 第一人称：相机=胸口（与玩家同 z）
       lookX: G.playerLaneX,
       lookZ: G.dist + CAM3.lookAhead,
       fovMul: CAM1.fovMul,
@@ -134,8 +134,8 @@ function camState() {
 
 /* 世界坐标 -> 屏幕坐标 在 RENDER 部分的 project() 实现 */
 const Z_NEAR = 0.4, Z_FAR = 140;
-const FOV_DEG = 42;
-const HORIZON = 0.40;
+const FOV_DEG = 60;
+const HORIZON = 0.26;
 
 /* ============================================================
    道路两侧具象化道具
@@ -469,35 +469,26 @@ function render() {
   ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
 }
 
+/* 世界坐标 -> 屏幕坐标。wz 是绝对世界 z；相机 z 统一用 CAM.z。 */
 function project(wx, wy, wz) {
-  // wz 是绝对世界 z。统一用 CAM.z 作为相机 z。
   const camZ = CAM.z;
-  const f = H * (FOV_DEG * 0.011) * CAM.fovMul;
-  const relZ = wz - camZ;             // 相对相机的前方距离
-  const zc = Math.max(relZ, Z_NEAR);
+  const f = (H / 2) / Math.tan((FOV_DEG * 0.5) * Math.PI / 180) * CAM.fovMul;
+  const zc = Math.max(wz - camZ, Z_NEAR);
   const scale = f / zc;
   const horizonY = H * HORIZON;
-  const lookShift = (CAM.lookX - CAM.x) * 0.35;
+  const lookShift = (CAM.lookX - CAM.x) * 0.3;
   const x = W / 2 + (wx - CAM.x + lookShift) * scale;
   const y = horizonY + (CAM.y - wy) * scale;
-  // 屏幕空间回退：当物体"贴到地平线外"（y 超出 [horizonY, H] 或 x 超出 [0, W]）时，
-  // 把它夹回可见的透视梯形内，避免远处网格/道路被画到屏幕外导致黑屏。
-  const yTop = horizonY, yBot = H;
-  const cy = clamp(y, yTop + 2, yBot - 2);
-  // x 也按当前"深度行"的可视宽度夹一下（越远越窄）
-  const depthFrac = clamp((cy - yTop) / (yBot - yTop), 0, 1); // 0=地平线,1=底部
-  const halfW = (W * 0.5) * (0.06 + 0.94 * depthFrac);
-  const cx = clamp(x, W / 2 - halfW, W / 2 + halfW);
-  return { x: cx, y: cy, s: scale };
+  return { x, y, s: scale };
 }
 
 function drawSky() {
   const g = ctx.createLinearGradient(0, 0, 0, H * HORIZON);
   // 拉高对比：深蓝夜空 -> 品红地平线
-  g.addColorStop(0, '#03030f');
-  g.addColorStop(0.55, '#0a0420');
-  g.addColorStop(0.85, '#2a0a45');
-  g.addColorStop(1, `hsl(${(G.hue + 300) % 360},80%,32%)`);
+  g.addColorStop(0, '#01020c');
+  g.addColorStop(0.45, '#0b0530');
+  g.addColorStop(0.75, '#3d0a5c');
+  g.addColorStop(1, `hsl(${(G.hue + 300) % 360},95%,45%)`);
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, W, H * HORIZON + 2);
 
@@ -523,28 +514,29 @@ function drawSky() {
 function drawGround() {
   // 地面：高对比深色，与天空拉开层次
   const g = ctx.createLinearGradient(0, H * HORIZON, 0, H);
-  g.addColorStop(0, '#0c0418');
-  g.addColorStop(1, '#01010a');
+  g.addColorStop(0, '#2a0f4d');
+  g.addColorStop(1, '#0a0518');
   ctx.fillStyle = g;
   ctx.fillRect(0, H * HORIZON, W, H - H * HORIZON);
 }
 
 function drawGrid() {
   const step = 4;
-  const camWZ = G.dist - 1; // 绝对世界 z 基准（略在玩家身后）
+  const camWZ = G.dist - (G.camMode === 1 ? 0.2 : CAM3.dist); // 相机绝对世界 z
   const startOff = G.state === 'play' ? (G.dist % step) : (G.t * 6) % step;
 
   ctx.lineWidth = 1;
   // 纵向线（绝对世界 z：从相机附近一路铺到远处）
   for (let x = -8; x <= 8; x++) {
-    const a = project(x * step * 0.55, 0, camWZ);
+    const zStart = camWZ + 0.02; // 极近，地面铺满到画面底边
+    const a = project(x * step * 0.55, 0, zStart);
     const b = project(x * step * 0.55, 0, camWZ + Z_FAR);
     ctx.strokeStyle = `hsla(${(G.hue + 180) % 360},80%,60%,${0.05 + (Math.abs(x) < 2 ? 0.12 : 0)})`;
     ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
   }
   // 横向线（绝对世界 z，随 dist 滚动）
   for (let i = 0; i < 44; i++) {
-    const z = camWZ + ((i * step + step - startOff) % (Z_FAR - Z_NEAR));
+    const z = camWZ + 0.02 + ((i * step + step - startOff) % (Z_FAR - Z_NEAR));
     const p = project(0, 0, z);
     if (p.s < 1.2) continue;
     const alpha = clamp((p.s - 1) / 60, 0, 1) * 0.55;
@@ -555,7 +547,7 @@ function drawGrid() {
   // 车道虚线
   ctx.setLineDash([10, 14]);
   for (const lx of [-SPACING/2, SPACING/2]) {
-    const a = project(lx, 0.02, camWZ), b = project(lx, 0.02, camWZ + Z_FAR * 0.8);
+    const a = project(lx, 0.02, camWZ + 0.02), b = project(lx, 0.02, camWZ + Z_FAR * 0.8);
     ctx.strokeStyle = `hsla(${G.hue % 360},80%,70%,.55)`;
     ctx.lineWidth = 2;
     ctx.lineDashOffset = -G.dist * 4;
@@ -566,14 +558,14 @@ function drawGrid() {
 
 /* 道路：具象化地面 */
 function drawRoad() {
-  const camWZ = G.dist - 1;
+  const camWZ = G.dist - (G.camMode === 1 ? 0.2 : CAM3.dist); // 相机绝对世界 z
   // 路面（比网格更亮的"沥青+霓虹"质感）
-  const fl = project(-SPACING * 1.7, 0, camWZ), fr = project(SPACING * 1.7, 0, camWZ);
+  const fl = project(-SPACING * 1.7, 0, camWZ + 0.02), fr = project(SPACING * 1.7, 0, camWZ + 0.02);
   const bl = project(-SPACING * 1.7, 0, camWZ + Z_FAR), br = project(SPACING * 1.7, 0, camWZ + Z_FAR);
   const rg = ctx.createLinearGradient(0, bl.y, 0, fl.y);
-  rg.addColorStop(0, `hsla(${(G.hue + 180) % 360},40%,14%,.9)`);
-  rg.addColorStop(0.7, `hsla(${(G.hue + 180) % 360},55%,10%,.95)`);
-  rg.addColorStop(1, `hsla(${(G.hue + 180) % 360},70%,16%,.9)`);
+  rg.addColorStop(0, `hsla(${(G.hue + 180) % 360},60%,34%,.95)`);
+  rg.addColorStop(0.5, `hsla(${(G.hue + 180) % 360},70%,24%,.95)`);
+  rg.addColorStop(1, `hsla(${(G.hue + 180) % 360},85%,40%,.95)`);
   ctx.fillStyle = rg;
   ctx.beginPath();
   ctx.moveTo(fl.x, fl.y); ctx.lineTo(fr.x, fr.y); ctx.lineTo(br.x, br.y); ctx.lineTo(bl.x, bl.y);
@@ -581,7 +573,7 @@ function drawRoad() {
 
   // 路边发光路缘
   for (const edge of [-1, 1]) {
-    const a = project(edge * SPACING * 1.7, 0.02, camWZ);
+    const a = project(edge * SPACING * 1.7, 0.02, camWZ + 0.02);
     const b = project(edge * SPACING * 1.7, 0.02, camWZ + Z_FAR * 0.9);
     ctx.strokeStyle = `hsla(${(G.hue + 20) % 360},100%,60%,.9)`;
     ctx.lineWidth = Math.max(2, a.s * 0.4);
@@ -858,11 +850,12 @@ function drawGems() {
 function drawPlayer() {
   // 第三人称下才画玩家本体
   const px = G.playerLaneX, py = G.y;
-  const p = project(px, py, G.dist);
+  const pz = G.dist; // 玩家在玩家位置（相机在身后 CAM3.dist）
+  const p = project(px, py, pz);
   const s = p.s;
   const bx = p.x, by = p.y;
 
-  const gs = project(px, 0, G.dist);
+  const gs = project(px, 0, pz);
   const shScale = clamp(1 - py * 0.12, 0.25, 1);
   ctx.fillStyle = 'rgba(0,0,0,.45)';
   ctx.beginPath();
