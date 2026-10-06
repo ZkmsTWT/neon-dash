@@ -470,20 +470,25 @@ function render() {
 }
 
 function project(wx, wy, wz) {
-  // wz 是绝对世界 z。相机世界 z：第三人称 = G.dist - CAM3.dist（在后），
-  // 第一人称 = G.dist - 0.4（在胸口）。统一用 CAM.z。
+  // wz 是绝对世界 z。统一用 CAM.z 作为相机 z。
   const camZ = CAM.z;
   const f = H * (FOV_DEG * 0.011) * CAM.fovMul;
   const relZ = wz - camZ;             // 相对相机的前方距离
   const zc = Math.max(relZ, Z_NEAR);
   const scale = f / zc;
   const horizonY = H * HORIZON;
-  // 水平：把 (wx - cam.x) 映射到屏幕中心；再叠加 look 偏移让视角平滑转向
   const lookShift = (CAM.lookX - CAM.x) * 0.35;
   const x = W / 2 + (wx - CAM.x + lookShift) * scale;
-  // 垂直：相机高度 CAM.y，物体高度 wy（wy=0 是地面）
   const y = horizonY + (CAM.y - wy) * scale;
-  return { x, y, s: scale };
+  // 屏幕空间回退：当物体"贴到地平线外"（y 超出 [horizonY, H] 或 x 超出 [0, W]）时，
+  // 把它夹回可见的透视梯形内，避免远处网格/道路被画到屏幕外导致黑屏。
+  const yTop = horizonY, yBot = H;
+  const cy = clamp(y, yTop + 2, yBot - 2);
+  // x 也按当前"深度行"的可视宽度夹一下（越远越窄）
+  const depthFrac = clamp((cy - yTop) / (yBot - yTop), 0, 1); // 0=地平线,1=底部
+  const halfW = (W * 0.5) * (0.06 + 0.94 * depthFrac);
+  const cx = clamp(x, W / 2 - halfW, W / 2 + halfW);
+  return { x: cx, y: cy, s: scale };
 }
 
 function drawSky() {
